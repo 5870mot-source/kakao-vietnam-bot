@@ -17,7 +17,7 @@ user_states = {}
 # 1. 실시간 음성 통화 웹페이지 (마지막 단계)
 @app.get("/", response_class=HTMLResponse)
 async def voice_chat_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {})
 
 # 2. 카카오톡 챗봇 메시지 처리 (Step-by-Step 핵심 라우터)
 @app.post('/api/kakao')
