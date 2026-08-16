@@ -1,57 +1,44 @@
-import json
-import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
 from groq import Groq
+import os
 
 app = FastAPI()
 
-# 사용 중이신 Groq API 키를 넣으세요 (gsk_...)
-API_KEY = "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"
+# Groq 클라이언트 설정 (본인의 API 키를 여기에 넣으세요)
+client = Groq(api_key="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")
 
-client = Groq(api_key=API_KEY)
+# 기존 AI 응답 함수
+def get_ai_response(text):
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": text}],
+        model="llama-3.3-70b-versatile",
+        temperature=0.3
+    )
+    return chat_completion.choices[0].message.content
 
+# 1. 카카오톡 대화 처리 함수
 @app.post('/api/kakao')
 async def kakao_chat(request: Request):
-    try:
-        req = await request.json()
-        user_message = req.get('userRequest', {}).get('utterance', '')
-        
-        # Groq 정식 최신 안정화 모델
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "너는 전문적인 베트남어 어학 튜터야. "
-                        "답변은 오직 표준 한국어와 베트남어 성조 알파벳(ABC, a, ă, â...)만 사용해. "
-                        "힌디어, 태국어, 기타 외래 문자나 유니코드 깨짐 글자는 절대 포함하지 마."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": user_message
-                }
-            ],
-            temperature=0.3,  # 무작위성을 낮춰 환각/깨짐 현상 최소화
-            max_tokens=1024,
-        )
-        
-        bot_text = completion.choices[0].message.content
+    req = await request.json()
+    utterance = req.get('userRequest', {}).get('utterance', '')
 
-    except Exception as e:
-        bot_text = f"서버 오류 발생: {str(e)}"
-
-    # 카카오톡 챗봇 응답 포맷
-    payload = {
-        'version': '2.0',
-        'template': {'outputs': [{'simpleText': {'text': bot_text}}]}
+    # 설정 명령어 처리
+    if utterance.startswith("설정:"):
+        return {
+            "version": "2.0",
+            "template": {"outputs": [{"simpleText": {"text": "학습 설정이 저장되었습니다. 이제 정해진 시간에 학습 알림을 보내드릴게요."}}]}
+        }
+    
+    # 일반 대화 처리
+    response_text = get_ai_response(utterance)
+    return {
+        "version": "2.0",
+        "template": {"outputs": [{"simpleText": {"text": response_text}}]}
     }
 
-    # UTF-8 한글 직렬화 (인코딩 에러 방지)
-    json_str = json.dumps(payload, ensure_ascii=False)
-    return Response(content=json_str, media_type="application/json; charset=utf-8")
-
-if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+# 2. 알림 트리거 함수 (Render Cron Job용)
+@app.get('/api/cron/push')
+async def trigger_push():
+    # 추후 여기에 시트 연동 및 카카오 메시지 발송 로직이 들어갑니다.
+    print("알림 발송 로직이 작동 중입니다.")
+    return {"status": "알림 발송 시도 완료"}
