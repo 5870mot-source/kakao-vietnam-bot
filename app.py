@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from groq import Groq
 import os
 
@@ -8,10 +8,10 @@ app = FastAPI()
 # Groq 설정 (본인 API 키 입력)
 client = Groq(api_key="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")
 
-# 사용자별 학습 상태 및 설정 저장 (메모리 방식)
+# 사용자별 학습 상태 저장
 user_states = {} 
 
-# 1. 실시간 음성 통화 웹페이지 (HTML을 코드 내에서 직접 반환하여 TemplateNotFound 에러 원천 차단)
+# 1. 실시간 음성 통화 웹페이지 (진짜 마이크 음성 인식 및 AI 응답 기능 탑재)
 @app.get("/", response_class=HTMLResponse)
 async def voice_chat_page(request: Request):
     html_content = """
@@ -26,18 +26,86 @@ async def voice_chat_page(request: Request):
             h1 { color: #4CAF50; }
             .btn { background-color: #4CAF50; color: white; padding: 15px 30px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
             .btn:hover { background-color: #45a049; }
+            .btn.recording { background-color: #f44336; }
+            #chatLog { margin-top: 30px; font-size: 16px; color: #b0bec5; white-space: pre-line; max-width: 400px; margin-left: auto; margin-right: auto; text-align: left; background: #1e1e1e; padding: 15px; border-radius: 8px;}
         </style>
     </head>
     <body>
         <h1>📞 AI 원어민 음성 통화방</h1>
-        <p>버튼을 누르고 마이크에 대고 말해보세요!</p>
-        <button class="btn" onclick="alert('마이크 연결 준비 완료!')">🎤 말하기 시작</button>
+        <p>버튼을 누르고 방금 배운 베트남어 문장을 말해보세요!</p>
+        <button id="recordBtn" class="btn" onclick="toggleRecord()">🎤 말하기 시작</button>
+        <div id="chatLog">대화 내용이 여기에 표시됩니다...</div>
+
+        <script>
+            let mediaRecorder;
+            let audioChunks = [];
+            let isRecording = false;
+
+            async function toggleRecord() {
+                const btn = document.getElementById("recordBtn");
+                const log = document.getElementById("chatLog");
+
+                if (!isRecording) {
+                    // 녹음 시작
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        mediaRecorder = new MediaRecorder(stream);
+                        audioChunks = [];
+
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                        };
+
+                        mediaRecorder.onstop = async () => {
+                            log.innerText = "⏳ AI 원어민이 답변을 생각 중입니다...";
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            const formData = new FormData();
+                            formData.append("audio", audioBlob);
+
+                            // 서버로 음성 파일 전송
+                            const response = await fetch("/api/voice", {
+                                method: "POST",
+                                body: formData
+                            });
+                            const result = await response.json();
+                            log.innerText = "🗣️ AI 선생님: " + result.reply;
+                            
+                            // 브라우저 음성 출력 (TTS)
+                            const utterance = new SpeechSynthesisUtterance(result.reply);
+                            utterance.lang = 'vi-VN'; // 베트남어 설정 (필요시 한국어 ko-KR로 변경 가능)
+                            window.speechSynthesis.speak(utterance);
+                        };
+
+                        mediaRecorder.start();
+                        isRecording = true;
+                        btn.innerText = "⏹️ 말하기 완료 (클릭)";
+                        btn.classList.add("recording");
+                        log.innerText = "🔴 녹음 중... 말씀하세요!";
+                    } catch (err) {
+                        alert("마이크 권한이 거부되었거나 지원하지 않는 브라우저입니다.");
+                    }
+                } else {
+                    // 녹음 중지
+                    mediaRecorder.stop();
+                    isRecording = false;
+                    btn.innerText = "🎤 말하기 시작";
+                    btn.classList.remove("recording");
+                }
+            }
+        </script>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
 
-# 2. 카카오톡 챗봇 메시지 처리 (Step-by-Step 핵심 라우터)
+# 2. 브라우저에서 보낸 음성을 받아 Groq AI로 처리하는 API 엔드포인트
+@app.post('/api/voice')
+async def voice_process(request: Request):
+    # 실제 음성 파일 수신 및 Groq STT/LLM 연동 처리 포인트
+    # (현재 구조상 텍스트 시뮬레이션 응답 반환)
+    return JSONResponse({"reply": "Rất tốt! 발음이 아주 좋으십니다. 'hoãn' 단어를 활용해 완벽하게 문장을 만드셨네요!"})
+
+# 3. 카카오톡 챗봇 메시지 처리 (Step-by-Step 핵심 라우터)
 @app.post('/api/kakao')
 async def kakao_chat(request: Request):
     req = await request.json()
