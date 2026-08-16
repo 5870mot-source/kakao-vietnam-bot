@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 원어민 실시간 통화</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #121212; color: #ffffff; margin: 0; display: flex; flex-direction: column; height: 100vh; justify-content: space-between; padding: 20px; box-sizing: border-box; }
+        .header { text-align: center; margin-top: 10px; }
+        .setting-bar { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
+        select { background: #2c2c2e; color: white; border: none; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+        #call-status { font-size: 14px; color: #00ff66; margin-top: 5px; }
+        
+        .chat-container { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 10px 0; max-width: 600px; width: 100%; margin: 0 auto; }
+        .bubble { padding: 12px 16px; border-radius: 16px; max-width: 80%; font-size: 16px; line-height: 1.4; }
+        .bubble.user { background: #007aff; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .bubble.ai { background: #2c2c2e; color: #f1f1f1; align-self: flex-start; border-bottom-left-radius: 4px; }
+
+        .control-panel { display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; gap: 15px; }
+        .call-btn { width: 72px; height: 72px; border-radius: 50%; border: none; font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.2s; }
+        .call-btn.start { background: #34c759; color: white; }
+        .call-btn.listening { background: #ff3b30; color: white; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.6); } 70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(255, 59, 48, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } }
+        .guide-text { font-size: 13px; color: #8e8e93; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h2>📞 AI 원어민 음성 통화</h2>
+    <div class="setting-bar">
+        <select id="lang-select">
+            <option value="베트남어">베트남어</option>
+            <option value="영어">영어</option>
+        </select>
+        <select id="level-select">
+            <option value="초급">초급</option>
+            <option value="중급">중급</option>
+            <option value="고급">고급</option>
+        </select>
+    </div>
+    <div id="call-status">통화 대기 중... 버튼을 눌러 시작하세요.</div>
+</div>
+
+<div class="chat-container" id="chat-box">
+    <div class="bubble ai">안녕하세요! 통화 버튼을 누르고 편하게 말을 걸어주세요. 목소리로 바로 대답해 드릴게요.</div>
+</div>
+
+<div class="control-panel">
+    <div class="guide-text" id="guide">초록색 버튼을 누르고 말씀하세요</div>
+    <button id="mic-btn" class="call-btn start" onclick="toggleCall()">🎤</button>
+</div>
+
+<script>
+    const micBtn = document.getElementById('mic-btn');
+    const chatBox = document.getElementById('chat-box');
+    const statusText = document.getElementById('call-status');
+    const guideText = document.getElementById('guide');
+    let isConnected = false;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onresult = async (event) => {
+            const userText = event.results[0][0].transcript;
+            appendMessage(userText, 'user');
+            stopListeningState();
+            
+            await sendToAI(userText);
+        };
+
+        recognition.onerror = () => { stopListeningState(); };
+        recognition.onend = () => { stopListeningState(); };
+    } else {
+        alert("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 사파리를 이용해 주세요.");
+    }
+
+    function toggleCall() {
+        if (!recognition) return;
+        if (!isConnected) {
+            startListeningState();
+        } else {
+            stopListeningState();
+        }
+    }
+
+    function startListeningState() {
+        const lang = document.getElementById('lang-select').value;
+        recognition.lang = lang === '베트남어' ? 'vi-VN' : 'en-US';
+        
+        try {
+            recognition.start();
+            isConnected = true;
+            micBtn.className = "call-btn listening";
+            micBtn.innerText = "⏹️";
+            statusText.innerText = "🔴 통화 연결 중 (듣고 있어요...)";
+            guideText.innerText = "말씀을 마치면 자동으로 전송됩니다";
+        } catch (e) {
+            stopListeningState();
+        }
+    }
+
+    function stopListeningState() {
+        try { recognition.stop(); } catch(e) {}
+        isConnected = false;
+        micBtn.className = "call-btn start";
+        micBtn.innerText = "🎤";
+        statusText.innerText = "통화 대기 중";
+        guideText.innerText = "버튼을 누르고 다시 말씀하세요";
+    }
+
+    async function sendToAI(text) {
+        const lang = document.getElementById('lang-select').value;
+        const level = document.getElementById('level-select').value;
+
+        appendMessage("생각 중...", 'ai', true);
+
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text, lang: lang, level: level })
+            });
+            const data = await response.json();
+            
+            chatBox.lastChild.remove();
+            appendMessage(data.reply, 'ai');
+
+            // AI 음성 출력 (TTS)
+            speakVoice(data.reply, lang);
+
+        } catch (error) {
+            chatBox.lastChild.remove();
+            appendMessage("연결에 실패했습니다.", 'ai');
+        }
+    }
+
+    function appendMessage(text, sender, isTemp = false) {
+        const div = document.createElement('div');
+        div.className = `bubble ${sender}`;
+        div.innerText = text;
+        if (isTemp) div.id = 'temp';
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function speakVoice(text, lang) {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = lang === '베트남어' ? 'vi-VN' : 'en-US';
+            utterance.rate = 0.95;
+            
+            // AI가 말하는 동안 상태 표시
+            utterance.onstart = () => { statusText.innerText = "🗣️ AI가 말하는 중..."; };
+            utterance.onend = () => { statusText.innerText = "통화 대기 중"; };
+            
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+</script>
+
+</body>
+</html>
