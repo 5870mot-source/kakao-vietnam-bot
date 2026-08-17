@@ -1,139 +1,127 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from groq import Groq
 import os
 
 app = FastAPI()
 
-# Groq API 설정 (무료 활용 가능, 본인 API 키 입력)
+# Groq API 설정 (본인 API 키 입력)
 client = Groq(api_key="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")
 
-# 1. 버튼 없이 말하면 자동으로 인식하고 대화하는 웹 통화 화면
-@app.get("/", response_class=HTMLResponse)
-async def voice_chat_page(request: Request):
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="ko">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AI 원어민 실시간 음성 대화</title>
-        <style>
-            body { background-color: #121212; color: #ffffff; font-family: sans-serif; text-align: center; padding-top: 50px; }
-            h1 { color: #4CAF50; }
-            .status { font-size: 18px; margin: 20px; color: #ffeb3b; }
-            .box { background: #1e1e1e; padding: 20px; border-radius: 10px; max-width: 450px; margin: 0 auto; text-align: left; }
-            p { margin: 10px 0; }
-        </style>
-    </head>
-    <body>
-        <h1>📞 AI 원어민 실시간 대화방</h1>
-        <div class="status" id="statusText">마이크 준비 중... 편하게 말씀하세요!</div>
-        
-        <div class="box">
-            <p><b>나:</b> <span id="userText" style="color: #90caf9;">대기 중...</span></p>
-            <p><b>AI 선생님:</b> <span id="aiText" style="color: #a5d6a7;">대화가 시작되면 여기에 표시됩니다.</span></p>
-        </div>
+# 사용자별 학습 상태 관리 메모리
+user_states = {}
 
-        <script>
-            const statusText = document.getElementById("statusText");
-            const userTextSpan = document.getElementById("userText");
-            const aiTextSpan = document.getElementById("aiText");
+@app.post('/api/kakao')
+async def kakao_webhook(request: Request):
+    req = await request.json()
+    user_id = req.get('userRequest', {}).get('user', {}).get('id', 'default_user')
+    utterance = req.get('userRequest', {}).get('utterance', '').strip()
+    
+    if user_id not in user_states:
+        user_states[user_id] = {"step": "IDLE", "lang": "베트남어"}
 
-            // 브라우저 내장 음성 인식 API (구글 엔진 기반 - 완전 무료)
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            
-            if (!SpeechRecognition) {
-                alert("이 브라우저는 실시간 음성 인식을 지원하지 않습니다. 크롬(Chrome) 브라우저를 사용해 주세요.");
-            } else {
-                const recognition = new SpeechRecognition();
-                recognition.lang = 'ko-KR'; // 인식 언어 (필요시 'vi-VN' 베트남어로 변경 가능)
-                recognition.continuous = false; // 한 문장씩 끊어서 자연스럽게 처리
-                recognition.interimResults = true;
+    state = user_states[user_id]["step"]
 
-                recognition.onstart = () => {
-                    statusText.innerText = "🟢 듣고 있어요... 편하게 말씀하세요!";
-                };
-
-                recognition.onresult = async (event) => {
-                    let transcript = '';
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        transcript += event.results[i][0].transcript;
-                    }
-                    userTextSpan.innerText = transcript;
-
-                    // 사용자가 말을 끝마쳤을 때 서버로 전송
-                    if (event.results[0].isFinal) {
-                        statusText.innerText = "⏳ AI가 생각 중...";
-                        
-                        try {
-                            const response = await fetch("/api/chat", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ message: transcript })
-                            });
-                            const data = await response.json();
-                            const reply = data.reply;
-                            
-                            aiTextSpan.innerText = reply;
-                            statusText.innerText = "🔊 AI 답변 중...";
-                            
-                            // 브라우저 내장 음성 합성(TTS)으로 AI 답변 말하기 (완전 무료)
-                            const utterance = new SpeechSynthesisUtterance(reply);
-                            utterance.lang = 'ko-KR'; // 한국어 출력 (베트남어 음성 원하시면 'vi-VN'으로 변경)
-                            utterance.rate = 1.0;
-                            
-                            utterance.onend = () => {
-                                // 말이 끝나면 자동으로 다시 듣기 시작 (무한 대화 루프)
-                                recognition.start();
-                            };
-                            
-                            window.speechSynthesis.speak(utterance);
-                        } catch (err) {
-                            statusText.innerText = "⚠️ 오류 발생. 다시 시도합니다.";
-                            recognition.start();
+    # 1. 학습 시작 요청 (1단계: 미션 및 필수 표현 인풋 제공)
+    if "학습 시작" in utterance or "시작" in utterance or "처음" in utterance:
+        user_states[user_id]["step"] = "WAITING_ANSWER"
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {
+                        "simpleText": {
+                            "text": "📌 [ 오늘의 비즈니스 롤플레잉 미션 ]\n\n"
+                                    "🏢 상황: 거래처와의 미팅 일정을 긴급히 내일로 연기해야 합니다.\n\n"
+                                    "💡 핵심 필수 패턴:\n"
+                                    "• \"Xin vui lòng hoãn...\" (연기해 주세요)\n\n"
+                                    "🎯 미션: 실제 거래처 담당자에게 말하듯 "
+                                    "해당 내용을 포함하여 답변을 작성해 텍스트(또는 음성 메시지)로 전송해 주세요!"
                         }
                     }
-                };
-
-                recognition.onerror = (event) => {
-                    console.error(event.error);
-                    recognition.start(); // 에러가 나도 끊기지 않고 다시 듣기 시도
-                };
-
-                recognition.onend = () => {
-                    // 음성 인식이 꺼지면 자동으로 다시 켜서 상시 대기 상태 유지
-                    try { recognition.start(); } catch(e) {}
-                };
-
-                // 최초 실행
-                recognition.start();
+                ],
+                "quickReplies": [
+                    {"label": "💡 예시 답변 보기", "action": "message", "messageText": "예시 답변 보기"}
+                ]
             }
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+        }
 
-# 2. 사용자의 말을 받아 Groq AI로 답변을 만드는 API
-@app.post('/api/chat')
-async def chat_with_ai(request: Request):
-    data = await request.json()
-    user_message = data.get("message", "")
+    # 2. 예시 답변 보기 요청 시
+    if utterance == "예시 답변 보기":
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {
+                        "simpleText": {
+                            "text": "💡 [모범 예시 표현]\n\n"
+                                    "\"Chào anh, xin vui lòng hoãn cuộc họp sang ngày mai giúp tôi nhé.\"\n"
+                                    "(안녕하세요, 회의를 내일로 연기해 주시기 바랍니다.)\n\n"
+                                    "👉 이 표현을 참고하여 본인만의 문장으로 답변을 보내보세요!"
+                        }
+                    }
+                ]
+            }
+        }
 
-    # Groq AI 호출 (초고속 무료 기반 모델 활용)
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "당신은 친절하고 다정한 외국어(베트남어 및 한국어) 원어민 튜터입니다. 사용자의 말에 짧고 자연스럽게 대화하듯 대답해 주세요."},
-                {"role": "user", "content": user_message}
+    # 3. 학습자의 답변을 받아 AI 심층 코칭 및 납득형 피드백 제공 (3단계)
+    if state == "WAITING_ANSWER" and utterance and utterance != "예시 답변 보기":
+        
+        # AI 코칭 프롬프트 (OPIc/SJPT 채점관 페르소나)
+        prompt = f"""
+        당신은 전문 외국어(베트남어) OPIc/SJPT 채점관이자 다정한 비즈니스 멘토입니다.
+        학습자가 미션에 대해 다음과 같이 답변했습니다: "{utterance}"
+        
+        다음 3가지 요소를 포함하여 카카오톡 말풍선에 어울리도록 깔끔하고 친절하게 피드백을 작성해 주세요:
+        1. 👏 잘한 점 (칭찬과 격려)
+        2. 🌟 추천 비즈니스 표현 (학습자의 문장을 더 정중하고 자연스러운 원어민 비즈니스 표현으로 교정)
+        3. 💡 납득 포인트 (왜 이렇게 고쳐야 하는지 문화적/문법적 이유를 명쾌하게 설명)
+        """
+
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
+            )
+            feedback_result = completion.choices[0].message.content
+        except Exception as e:
+            feedback_result = "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요!"
+
+        # 학습 완료 상태로 변경
+        user_states[user_id]["step"] = "COMPLETED"
+
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {
+                        "simpleText": {
+                            "text": f"📊 [ AI 맞춤형 코칭 리포트 ]\n\n{feedback_result}"
+                        }
+                    }
+                ],
+                "quickReplies": [
+                    {"label": "🔄 심화 미션 도전하기", "action": "message", "messageText": "오늘 학습 시작"},
+                    {"label": "📚 처음으로", "action": "message", "messageText": "시작"}
+                ]
+            }
+        }
+
+    # 기본 안내 화면
+    return {
+        "version": "2.0",
+        "template": {
+            "outputs": [
+                {
+                    "simpleText": {
+                        "text": "👋 비즈니스 원어민 튜터 봇에 오신 것을 환영합니다!\n\n"
+                                "버튼을 눌러 오늘 하루의 실전 회화 훈련을 시작해 보세요."
+                    }
+                }
             ],
-            temperature=0.7,
-            max_tokens=150
-        )
-        ai_reply = completion.choices[0].message.content
-    except Exception as e:
-        ai_reply = "죄송합니다, 잠시 통신이 원활하지 않았어요. 다시 말씀해 주세요!"
-
-    return JSONResponse({"reply": ai_reply})
+            "quickReplies": [
+                {"label": "🚀 오늘 학습 시작", "action": "message", "messageText": "오늘 학습 시작"}
+            ]
+        }
+    }
