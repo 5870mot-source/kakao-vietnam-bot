@@ -119,6 +119,19 @@ async def send_mission(user_id, step):
     }
 
 async def handle_mission_answer(user_id, utterance):
+    # 음성 파일 링크(http로 시작하는 URL) 입력 시 차단
+    if utterance.startswith("http"):
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [{
+                    "simpleText": {
+                        "text": "⚠️ 음성 메시지는 분석할 수 없습니다.\n비즈니스 문장 학습을 위해 **직접 텍스트로** 문장을 입력해 주세요!"
+                    }
+                }]
+            }
+        }
+
     current_step = user_states[user_id]["step"]
     lang = user_states[user_id]["lang"]
     level = user_states[user_id]["level"]
