@@ -67,7 +67,7 @@ async def kakao_webhook(request: Request):
         user_states[user_id]["step"] = "STEP_1"
         return await send_mission(user_id, "STEP_1")
 
-    # 4. 각 단계별 "다시 도전" 또는 "다음 단계" 수동 분기 처리
+    # 4. 단계 수동 분기 처리
     if utterance == "1단계 다시 하기":
         user_states[user_id]["step"] = "STEP_1"
         return await send_mission(user_id, "STEP_1")
@@ -84,7 +84,7 @@ async def kakao_webhook(request: Request):
         user_states[user_id]["step"] = "STEP_3"
         return await send_mission(user_id, "STEP_3")
 
-    # 5. 단계별 미션 답변 처리 (텍스트 또는 음성 파일)
+    # 5. 미션 답변 처리
     current_state = user_states[user_id]["step"]
     if current_state in ["STEP_1", "STEP_2", "STEP_3"]:
         user_answer = utterance
@@ -155,11 +155,25 @@ async def send_mission(user_id, step):
     lang = user_states[user_id]["lang"]
     level = user_states[user_id]["level"]
     
-    missions = {
-        "STEP_1": "1단계: 핵심 패턴 영작\n📌 상사에게 일정 변경을 정중하게 요청하는 첫 문장을 음성으로 녹음해 주세요!",
-        "STEP_2": "2단계: 비즈니스 대화\n📌 상대방이 사유를 물어왔습니다. 타당한 사유를 음성으로 녹음해 주세요!",
-        "STEP_3": "3단계: 심화 대처\n📌 일정을 최종 확정하는 내용을 음성으로 녹음해 주세요!"
-    }
+    # 난이도별로 품격 있고 실무적인 심화 시나리오 구성
+    if level == "고급":
+        missions = {
+            "STEP_1": "1단계: 전략적 오프닝 (Strategic Opening)\n📌 [상황] 중요한 프로젝트 마감일을 앞두고 예상치 못한 변수가 생겨 임원진 보고 일정을 며칠 연기해야 합니다. 상대방의 부담을 최소화하면서 격식 있고 전략적으로 일정을 제안하는 오프닝 발언을 음성으로 녹음해 주세요.",
+            "STEP_2": "2단계: 이해관계 설득 및 리스크 방어 (Risk Mitigation)\n📌 [상황] 상대방이 일정 연기에 난색을 표하며 프로젝트 병목 현상을 우려합니다. 이에 대해 리스크가 철저히 통제되고 있음을 전문적인 어휘로 안심시키는 설득 발언을 음성으로 녹음해 주세요.",
+            "STEP_3": "3단계: 하이엔드 클로징 및 대안 제시 (Executive Closing)\n📌 [상황] 최종적으로 수정된 타임라인을 확정 짓고, 향후 일정에 차질이 없도록 확신을 주는 임원급 비즈니스 클로징 멘트를 음성으로 녹음해 주세요."
+        }
+    elif level == "중급":
+        missions = {
+            "STEP_1": "1단계: 정중한 요청\n📌 [상황] 내부 사정으로 인해 내일 예정된 클라이언트 미팅 시간을 오후로 변경해 달라고 요청하는 문장을 음성으로 녹음해 주세요.",
+            "STEP_2": "2단계: 사유 설명\n📌 [상황] 상대방이 변경 이유를 물어왔습니다. 전날 취합된 데이터 검토에 조금 더 시간이 필요하다고 자연스럽게 설명해 주세요.",
+            "STEP_3": "3단계: 마무리 조율\n📌 [상황] 상대방의 양해에 감사드리며 최종 미팅 시간을 확정하는 정중한 메시지를 남겨주세요."
+        }
+    else:  # 초급
+        missions = {
+            "STEP_1": "1단계: 핵심 패턴 영작\n📌 [상황] 상사에게 일정 변경을 정중하게 요청하는 첫 문장을 음성으로 녹음해 주세요!",
+            "STEP_2": "2단계: 사유 말하기\n📌 [상황] 상대방이 왜 변경해야 하냐고 물었습니다. 간단한 사유를 한 문장으로 답변해 주세요!",
+            "STEP_3": "3단계: 일정 확정\n📌 [상황] 최종 일정을 확인하며 마무리 인사를 건네주세요!"
+        }
     
     return {
         "version": "2.0",
@@ -177,16 +191,23 @@ async def handle_mission_answer(user_id, utterance):
     lang = user_states[user_id]["lang"]
     level = user_states[user_id]["level"]
 
-    prompt = f"당신은 전문 {lang} 멘토입니다. 학습자({level})가 음성/텍스트로 답변한 내용: '{utterance}'을 피드백하고 교정해주세요."
+    # AI에게 난이도에 맞는 엄격하고 전문적인 피드백 요구
+    prompt = (
+        f"당신은 글로벌 기업의 수석 {lang} 비즈니스 코치입니다. "
+        f"학습자의 현재 레벨은 '{level}'입니다. "
+        f"학습자가 제출한 답변: '{utterance}'\n\n"
+        f"이 답변을 바탕으로 다음 요소를 포함하여 피드백해주세요:\n"
+        f"1. 비즈니스 톤앤매너 및 격식 평가\n"
+        f"2. 원어민들이 선호하는 더 세련된 고급 표현이나 어휘 제안"
+    )
+    
     try:
         completion = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
         feedback = completion.choices[0].message.content
     except:
         feedback = "AI 분석 완료."
 
-    # 피드백 이후, 사용자가 직접 선택할 수 있도록 하단 버튼(quickReplies) 제공
     if current_step == "STEP_1":
-        # 상태를 대기 상태로 두고 선택을 유도
         user_states[user_id]["step"] = "CHOIR_1"
         return {
             "version": "2.0",
@@ -229,8 +250,7 @@ async def handle_mission_answer(user_id, utterance):
                     }
                 }],
                 "quickReplies": [
-                    {"label": "🔄 새로운 커리큘럼 시작", "action": "message", "messageText": "오늘 학습 시작"}
-                ]
+                    {"label": "🔄 새로운 커리큘럼 시작", "action": "message", "messageText": "오늘 학습 시작"}]
             }
         }
 
