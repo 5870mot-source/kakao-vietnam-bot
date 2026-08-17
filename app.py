@@ -9,6 +9,26 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY", "gsk_GI1m4hspv6VtDgtxRyVTWG
 
 user_states = {}
 
+# OPIc 및 SJBT 핵심 빈출 12가지 주제 정의
+TOPICS = [
+    # 비즈니스
+    "비즈니스 미팅 및 일정 조율",
+    "프로젝트 리스크 및 트러블 슈팅",
+    "출장 및 외근 준비",
+    "고객 응대 및 불만 처리",
+    # 여행/이동
+    "공항 및 출입국 심사",
+    "호텔 체크인 및 시설 이용",
+    "길 찾기 및 대중교통 이용",
+    # 일상/소비
+    "마켓 장보기 및 식료품 쇼핑",
+    "레스토랑 예약 및 주문",
+    "병원 및 약국 방문",
+    # 주거/여가
+    "집 수리 및 관리사무소 소통",
+    "취미 및 여가 활동 소개"
+]
+
 @app.post('/api/kakao')
 async def kakao_webhook(request: Request):
     req = await request.json()
@@ -56,9 +76,8 @@ async def kakao_webhook(request: Request):
         user_states[user_id]["step"] = "IDLE"
         return await send_setting_status(user_id)
 
-    # 3. 학습 주제(상황) 선택 감지
-    topics = ["비즈니스 미팅 및 일정 조율", "공항 및 출입국 심사", "마켓 장보기 및 쇼핑", "호텔 체크인 및 돌발 요청"]
-    if utterance in topics:
+    # 3. 12가지 학습 주제(상황) 선택 감지
+    if utterance in TOPICS:
         user_states[user_id]["topic"] = utterance
         user_states[user_id]["step"] = "STEP_1_STUDY"
         return await send_study_content(user_id, "STEP_1_STUDY")
@@ -73,7 +92,7 @@ async def kakao_webhook(request: Request):
     elif utterance == "3단계 실전 미션 도전하기":
         user_states[user_id]["step"] = "STEP_3_MISSION"
         return await send_mission_prompt(user_id)
-    elif utterance == "🔄 다른 주제 선택하기" or utterance == "오늘 학습 시작":
+    elif utterance == "🔄 다른 주제 선택하기" or utterance == "주제 목록 보기" or utterance == "오늘 학습 시작":
         user_states[user_id]["topic"] = None
         user_states[user_id]["step"] = "IDLE"
         return await send_setting_status(user_id)
@@ -114,7 +133,6 @@ async def send_setting_status(user_id):
     state = user_states[user_id]
     lang = state["lang"] or "미선택"
     level = state["level"] or "미선택"
-    topic = state["topic"]
     
     quick_replies = []
     
@@ -135,15 +153,20 @@ async def send_setting_status(user_id):
         text_msg = (f"📌 현재 설정\n• 언어: [{lang}]\n• 난이도: [{level}]\n\n"
                     f"👉 아래 버튼을 눌러 언어와 난이도를 먼저 선택해 주세요!")
     else:
-        # 언어와 난이도가 모두 골라진 경우 ➔ 학습 주제 선택 메뉴 제공
+        # 언어와 난이도가 모두 골라진 경우 ➔ 12가지 빈출 주제 중 주요 인기 주제들을 버튼으로 노출
+        # (카카오톡 quickReplies는 최대 10개까지 지원하므로 핵심 주제들을 우선 노출합니다)
         quick_replies.extend([
             {"label": "💼 비즈니스 미팅", "action": "message", "messageText": "비즈니스 미팅 및 일정 조율"},
+            {"label": "📊 리스크 및 트러블", "action": "message", "messageText": "프로젝트 리스크 및 트러블 슈팅"},
             {"label": "✈️ 공항 및 출입국", "action": "message", "messageText": "공항 및 출입국 심사"},
-            {"label": "🛒 마켓 장보기", "action": "message", "messageText": "마켓 장보기 및 쇼핑"},
-            {"label": "🏨 호텔 체크인", "action": "message", "messageText": "호텔 체크인 및 돌발 요청"}
+            {"label": "🏨 호텔 체크인", "action": "message", "messageText": "호텔 체크인 및 시설 이용"},
+            {"label": "🛒 마켓 장보기", "action": "message", "messageText": "마켓 장보기 및 식료품 쇼핑"},
+            {"label": "🍽️ 레스토랑 예약", "action": "message", "messageText": "레스토랑 예약 및 주문"},
+            {"label": "💬 고객 응대/불만", "action": "message", "messageText": "고객 응대 및 불만 처리"},
+            {"label": "🏡 집 수리/관리", "action": "message", "messageText": "집 수리 및 관리사무소 소통"}
         ])
         text_msg = (f"📌 현재 설정\n• 언어: [{lang}]\n• 난이도: [{level}]\n\n"
-                    f"✅ 설정 완료! 공부하고 싶은 **[학습 주제/상황]**을 아래에서 선택해 주세요 👇")
+                    f"✅ 설정 완료! 공부하고 싶은 **[핵심 학습 주제]**를 아래에서 선택해 주세요 👇")
 
     return {
         "version": "2.0",
@@ -159,19 +182,20 @@ async def send_study_content(user_id, step):
     topic = user_states[user_id]["topic"]
     
     prompt = (
-        f"당신은 최고급 글로벌 어학 코치입니다. 학습자 레벨: '{level}', 목표 언어: '{lang}', 선택한 상황/주제: '{topic}'\n"
+        f"당신은 최고급 글로벌 어학(OPIc/SJBT) 수석 코치입니다. "
+        f"학습자 레벨: '{level}', 목표 언어: '{lang}', 선택한 주제: '{topic}'\n"
     )
     
     if step == "STEP_1_STUDY":
         prompt += (
             f"1단계 학습 내용을 제공해주세요.\n"
-            f"- 내용: 해당 상황에서 쓸 수 있는 **[핵심 오프닝 표현 및 유용한 패턴 3가지]**를 예문과 함께 깔끔하게 정리해주세요."
+            f"- 내용: 해당 주제에서 쓸 수 있는 **[핵심 오프닝 표현 및 원어민 시그니처 패턴 3가지]**를 예문과 함께 깔끔하게 정리해주세요."
         )
         next_button = "2단계 표현 학습하기"
     else:
         prompt += (
             f"2단계 학습 내용을 제공해주세요.\n"
-            f"- 내용: 해당 상황에서 추가로 발생할 수 있는 돌발 상황에 대처하는 **[리스크 방어 및 설득 고급 어휘/콤보 3가지]**를 정리해주세요."
+            f"- 내용: 해당 주제에서 추가로 발생할 수 있는 돌발 상황에 대처하는 **[리스크 방어 및 설득 고급 어휘/콤보 3가지]**를 정리해주세요."
         )
         next_button = "3단계 실전 미션 도전하기"
 
@@ -181,7 +205,7 @@ async def send_study_content(user_id, step):
     except:
         study_text = "학습 콘텐츠를 불러오는 중입니다."
 
-    header = f"📖 [1단계: {topic} 오프닝 표현 학습]" if step == "STEP_1_STUDY" else f"📖 [2단계: {topic} 심화 표현 학습]"
+    header = f"📖 [1단계: {topic} 오프닝 학습]" if step == "STEP_1_STUDY" else f"📖 [2단계: {topic} 심화 학습]"
 
     return {
         "version": "2.0",
@@ -233,8 +257,8 @@ async def handle_mission_feedback(user_id, utterance):
         f"학습자 레벨: '{level}', 목표 언어: '{lang}', 주제: '{topic}'\n"
         f"학습자가 제출한 실전 답변: '{utterance}'\n\n"
         f"다음 기준으로 입체적인 피드백을 제공해주세요:\n"
-        f"1. 🎯 **표현 평가**: 해당 상황에 맞는 어휘와 뉘앙스가 잘 반영되었는지 분석.\n"
-        f"2. ✨ **하이엔드 대안 제시**: 채점관이나 원어민 감탄을 자아낼 수 있는 더 세련된 표현 2가지 이상 제안.\n"
+        f"1. 🎯 **표현 평가**: 해당 주제와 레벨에 맞는 어휘와 뉘앙스가 잘 반영되었는지 분석.\n"
+        f"2. ✨ **하이엔드 대안 제시**: 채점관이나 원어민 감탄을 자아낼 수 있는 더 세련된 원어민 시그니처 표현 2가지 이상 제안.\n"
         f"3. 💡 **총평 및 칭찬**: 따뜻하고 격려가 되는 최종 코칭."
     )
     
