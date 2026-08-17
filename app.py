@@ -15,11 +15,6 @@ async def kakao_webhook(request: Request):
     user_id = req.get('userRequest', {}).get('user', {}).get('id', 'default_user')
     utterance = req.get('userRequest', {}).get('utterance', '').strip()
     
-    # 카카오톡 요청에 음성 파일(media) 또는 첨부된 링크가 있는지 확인
-    action = req.get('action', {})
-    detailParams = action.get('detailParams', {})
-    
-    # 사용자가 음성 메시지를 보낸 경우 (카카오톡 음성 메시지 URL 추출)
     media_url = None
     if utterance.startswith("http") and ("m4a" in utterance or "audio" in utterance or "talka_aac" in utterance):
         media_url = utterance
@@ -72,18 +67,33 @@ async def kakao_webhook(request: Request):
         user_states[user_id]["step"] = "STEP_1"
         return await send_mission(user_id, "STEP_1")
 
-    # 4. 단계별 미션 답변 처리 (텍스트 또는 음성 파일 처리)
+    # 4. 각 단계별 "다시 도전" 또는 "다음 단계" 수동 분기 처리
+    if utterance == "1단계 다시 하기":
+        user_states[user_id]["step"] = "STEP_1"
+        return await send_mission(user_id, "STEP_1")
+    elif utterance == "2단계로 넘어가기":
+        user_states[user_id]["step"] = "STEP_2"
+        return await send_mission(user_id, "STEP_2")
+    elif utterance == "2단계 다시 하기":
+        user_states[user_id]["step"] = "STEP_2"
+        return await send_mission(user_id, "STEP_2")
+    elif utterance == "3단계로 넘어가기":
+        user_states[user_id]["step"] = "STEP_3"
+        return await send_mission(user_id, "STEP_3")
+    elif utterance == "3단계 다시 하기":
+        user_states[user_id]["step"] = "STEP_3"
+        return await send_mission(user_id, "STEP_3")
+
+    # 5. 단계별 미션 답변 처리 (텍스트 또는 음성 파일)
     current_state = user_states[user_id]["step"]
     if current_state in ["STEP_1", "STEP_2", "STEP_3"]:
         user_answer = utterance
         
-        # 만약 사용자가 음성 메시지(URL)를 보냈다면 Whisper AI로 텍스트 변환 수행
         if media_url:
             try:
                 async with httpx.AsyncClient() as http_client:
                     response = await http_client.get(media_url)
                     if response.status_code == 200:
-                        # 임시 파일로 저장 후 Groq Whisper에 전달
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_file:
                             temp_file.write(response.content)
                             temp_file_path = temp_file.name
@@ -100,7 +110,7 @@ async def kakao_webhook(request: Request):
                     else:
                         user_answer = "음성 파일을 다운로드하지 못했습니다."
             except Exception as e:
-                user_answer = utterance # 실패 시 원본 유지
+                user_answer = utterance
                 
         return await handle_mission_answer(user_id, user_answer)
 
@@ -144,13 +154,19 @@ async def send_setting_status(user_id):
 async def send_mission(user_id, step):
     lang = user_states[user_id]["lang"]
     level = user_states[user_id]["level"]
+    
+    missions = {
+        "STEP_1": "1단계: 핵심 패턴 영작\n📌 상사에게 일정 변경을 정중하게 요청하는 첫 문장을 음성으로 녹음해 주세요!",
+        "STEP_2": "2단계: 비즈니스 대화\n📌 상대방이 사유를 물어왔습니다. 타당한 사유를 음성으로 녹음해 주세요!",
+        "STEP_3": "3단계: 심화 대처\n📌 일정을 최종 확정하는 내용을 음성으로 녹음해 주세요!"
+    }
+    
     return {
         "version": "2.0",
         "template": {
             "outputs": [{
                 "simpleText": {
-                    "text": f"🗺️ [{lang} / {level}] 3단계 커리큘럼 1단계 미션!\n\n"
-                            f"📌 마이크 버튼을 눌러 **음성으로** 정중한 요청 문장을 녹음해서 보내주세요!"
+                    "text": f"🗺️ [{lang} / {level}] {missions[step]}"
                 }
             }]
         }
@@ -161,29 +177,62 @@ async def handle_mission_answer(user_id, utterance):
     lang = user_states[user_id]["lang"]
     level = user_states[user_id]["level"]
 
-    prompt = f"당신은 전문 {lang} 멘토입니다. 학습자({level})가 음성으로 답변한 내용: '{utterance}'을 피드백하고 교정해주세요."
+    prompt = f"당신은 전문 {lang} 멘토입니다. 학습자({level})가 음성/텍스트로 답변한 내용: '{utterance}'을 피드백하고 교정해주세요."
     try:
         completion = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
         feedback = completion.choices[0].message.content
     except:
         feedback = "AI 분석 완료."
 
+    # 피드백 이후, 사용자가 직접 선택할 수 있도록 하단 버튼(quickReplies) 제공
     if current_step == "STEP_1":
-        user_states[user_id]["step"] = "STEP_2"
-        next_text = f"🎙️ [인식된 답변]: \"{utterance}\"\n\n📊 [1단계 코칭 결과]\n{feedback}\n\n👉 **[2단계 미션]**\n상대방이 사유를 물어왔습니다. **음성 녹음**으로 타당한 사유를 답변해 주세요!"
-    elif current_step == "STEP_2":
-        user_states[user_id]["step"] = "STEP_3"
-        next_text = f"🎙️ [인식된 답변]: \"{utterance}\"\n\n📊 [2단계 코칭 결과]\n{feedback}\n\n👉 **[3단계 최종 미션]**\n일정을 최종 확정하는 내용을 **음성 녹음**으로 마무리해 주세요!"
-    else:
-        user_states[user_id]["step"] = "IDLE"
-        next_text = f"🎙️ [인식된 답변]: \"{utterance}\"\n\n🎉 [3단계 최종 코칭 결과]\n{feedback}\n\n모든 과정을 완료하셨습니다!"
-
-    return {
-        "version": "2.0",
-        "template": {
-            "outputs": [{"simpleText": {"text": next_text}}]
+        # 상태를 대기 상태로 두고 선택을 유도
+        user_states[user_id]["step"] = "CHOIR_1"
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [{
+                    "simpleText": {
+                        "text": f"🎙️ [인식된 답변]: \"{utterance}\"\n\n📊 [1단계 코칭 결과]\n{feedback}\n\n어떻게 하시겠습니까?"
+                    }
+                }],
+                "quickReplies": [
+                    {"label": "🔄 1단계 다시 하기", "action": "message", "messageText": "1단계 다시 하기"},
+                    {"label": "👉 2단계로 넘어가기", "action": "message", "messageText": "2단계로 넘어가기"}
+                ]
+            }
         }
-    }
+    elif current_step == "STEP_2":
+        user_states[user_id]["step"] = "CHOIR_2"
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [{
+                    "simpleText": {
+                        "text": f"🎙️ [인식된 답변]: \"{utterance}\"\n\n📊 [2단계 코칭 결과]\n{feedback}\n\n어떻게 하시겠습니까?"
+                    }
+                }],
+                "quickReplies": [
+                    {"label": "🔄 2단계 다시 하기", "action": "message", "messageText": "2단계 다시 하기"},
+                    {"label": "👉 3단계로 넘어가기", "action": "message", "messageText": "3단계로 넘어가기"}
+                ]
+            }
+        }
+    else:  # STEP_3 완료
+        user_states[user_id]["step"] = "IDLE"
+        return {
+            "version": "2.0",
+            "template": {
+                "outputs": [{
+                    "simpleText": {
+                        "text": f"🎙️ [인식된 답변]: \"{utterance}\"\n\n🎉 [3단계 최종 코칭 결과]\n{feedback}\n\n모든 커리큘럼을 수료하셨습니다!"
+                    }
+                }],
+                "quickReplies": [
+                    {"label": "🔄 새로운 커리큘럼 시작", "action": "message", "messageText": "오늘 학습 시작"}
+                ]
+            }
+        }
 
 @app.get('/api/cron/push')
 @app.post('/api/cron/push')
