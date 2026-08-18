@@ -12,10 +12,10 @@ client = Groq(api_key=GROQ_API_KEY)
 # 사용자별 세션 저장소
 user_sessions = {}
 
-# 핵심 세부 주제 10선
-TOPICS_10 = [
-    "비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", "전화 응대",
-    "여행 회화", "카페 주문", "길 묻기", "병원 방문", "일상 대화"
+# 카카오톡 안정성(최대 10개 제한)을 고려한 핵심 실무 주제 8선
+TOPICS_8 = [
+    "비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", 
+    "전화 응대", "여행 회화", "카페 주문", "일상 대화"
 ]
 
 @app.post("/api/kakao")
@@ -31,7 +31,7 @@ async def kakao_skill(request: Request):
         
         session = user_sessions[user_id]
 
-        # [1단계] 어종(언어) 선택 (공백 포함 안전하게 캐치)
+        # [1단계] 어종(언어) 선택
         if not session["lang"]:
             if "영어" in user_message:
                 session["lang"] = "영어"
@@ -42,27 +42,27 @@ async def kakao_skill(request: Request):
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": f"🎯 **{session['lang']}**를 선택하셨습니다!\n\n이어 원하시는 **난이도**를 선택해 주세요."}}]
-                    },
-                    "quickReplies": [
-                        {"label": "초급", "action": "message", "messageText": "초급"},
-                        {"label": "중급", "action": "message", "messageText": "중급"},
-                        {"label": "고급", "action": "message", "messageText": "고급"}
-                    ]
+                        "outputs": [{"simpleText": {"text": f"🎯 **{session['lang']}**를 선택하셨습니다!\n\n이어 원하시는 **난이도**를 선택해 주세요."}}],
+                        "quickReplies": [
+                            {"label": "초급", "action": "message", "messageText": "초급"},
+                            {"label": "중급", "action": "message", "messageText": "중급"},
+                            {"label": "고급", "action": "message", "messageText": "고급"}
+                        ]
+                    }
                 })
             else:
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": "👋 환영합니다! 맞춤형 어학 학습을 시작해볼까요?\n\n먼저 학습할 **언어(어종)**를 선택해 주세요."}}]
-                    },
-                    "quickReplies": [
-                        {"label": "영어", "action": "message", "messageText": "영어"},
-                        {"label": "베트남어", "action": "message", "messageText": "베트남어"}
-                    ]
+                        "outputs": [{"simpleText": {"text": "👋 환영합니다! 맞춤형 어학 학습을 시작해볼까요?\n\n먼저 학습할 **언어**를 선택해 주세요."}}],
+                        "quickReplies": [
+                            {"label": "영어", "action": "message", "messageText": "영어"},
+                            {"label": "베트남어", "action": "message", "messageText": "베트남어"}
+                        ]
+                    }
                 })
 
-        # [2단계] 난이도 선택 직후 -> 무조건 10개 주제 전체 노출
+        # [2단계] 난이도 선택 직후 -> 주제 버튼 출력
         if not session["level"]:
             if "초급" in user_message:
                 session["level"] = "초급"
@@ -75,9 +75,9 @@ async def kakao_skill(request: Request):
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습하실 **주제**를 아래 버튼에서 선택해 주세요."}}]
-                    },
-                    "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_10]
+                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습하실 **주제**를 아래 버튼에서 선택해 주세요."}}],
+                        "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_8]
+                    }
                 })
             else:
                 return JSONResponse(content={
@@ -94,8 +94,7 @@ async def kakao_skill(request: Request):
 
         # [3단계] 주제 선정 완료 -> 1단계 진입
         if not session["topic"]:
-            # 사용자가 누른 주제가 10개 중 포함되어 있는지 확인
-            matched_topic = next((t for t in TOPICS_10 if t in user_message), None)
+            matched_topic = next((t for t in TOPICS_8 if t in user_message), None)
             if matched_topic:
                 session["topic"] = matched_topic
                 session["step"] = 1
@@ -104,7 +103,7 @@ async def kakao_skill(request: Request):
                     "version": "2.0",
                     "template": {
                         "outputs": [{"simpleText": {"text": "아래 버튼에서 학습하실 주제를 선택해 주세요!"}}],
-                        "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_10]
+                        "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_8]
                     }
                 })
 
@@ -123,7 +122,7 @@ async def kakao_skill(request: Request):
 
         # Step 3 AI 피드백 처리
         feedback_text = ""
-        if step == 3 and user_message not in ["다음 단계", "이전 단계", top] and not any(t in user_message for t in TOPICS_10):
+        if step == 3 and user_message not in ["다음 단계", "이전 단계", top] and not any(t in user_message for t in TOPICS_8):
             try:
                 chat_completion = client.chat.completions.create(
                     messages=[
@@ -207,9 +206,9 @@ async def kakao_skill(request: Request):
         return JSONResponse(content={
             "version": "2.0",
             "template": {
-                "outputs": [{"simpleText": {"text": text}}]
-            },
-            "quickReplies": quick_replies
+                "outputs": [{"simpleText": {"text": text}}],
+                "quickReplies": quick_replies
+            }
         })
 
     except Exception as e:
