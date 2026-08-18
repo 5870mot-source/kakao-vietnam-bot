@@ -10,10 +10,11 @@ GROQ_API_KEY = "Gsk_GI1m4hspv6VtDgtxRyVTWGdyb3FYkx00NSwnIV7nxd0LvhRaNYtp"
 # 사용자별 세션 저장소
 user_sessions = {}
 
-# 주제 카테고리 (카카오 퀵버튼 제한인 10개 이하로 안전하게 분리)
-BUSINESS_TOPICS = ["비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", "전화 응대"]
-DAILY_TOPICS = ["여행 회화", "카페 주문", "길 묻기", "병원 방문", "일상 대화"]
-ALL_TOPICS = BUSINESS_TOPICS + DAILY_TOPICS
+# 카카오톡 퀵 버튼 최대 제한(10개)에 맞춘 핵심 세부 주제 10선
+TOPICS_10 = [
+    "비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", "전화 응대",
+    "여행 회화", "카페 주문", "길 묻기", "병원 방문", "일상 대화"
+]
 
 @app.post("/api/kakao")
 async def kakao_skill(request: Request):
@@ -55,19 +56,16 @@ async def kakao_skill(request: Request):
                     ]
                 }
 
-        # [2단계] 난이도 선택
+        # [2단계] 난이도 선택 직후 -> 곧바로 세부 주제 10개 전체 노출
         if not session["level"]:
             if user_message in ["초급", "중급", "고급"]:
                 session["level"] = user_message
                 return {
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습할 주제의 **영역**을 선택해 주세요."}}]
+                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습하실 **주제**를 아래에서 선택해 주세요."}}]
                     },
-                    "quickReplies": [
-                        {"label": "💼 비즈니스/업무", "action": "message", "messageText": "비즈니스 영역"},
-                        {"label": "☕ 일상/생활", "action": "message", "messageText": "일상 영역"}
-                    ]
+                    "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_10]
                 }
             else:
                 return {
@@ -82,42 +80,21 @@ async def kakao_skill(request: Request):
                     }
                 }
 
-        # [3단계] 주제 영역 선택에 따른 세부 주제 노출
-        if user_message == "비즈니스 영역":
-            return {
-                "version": "2.0",
-                "template": {
-                    "outputs": [{"simpleText": {"text": "💼 학습하실 **비즈니스 세부 주제**를 선택해 주세요."}}],
-                    "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in BUSINESS_TOPICS]
-                }
-            }
-        elif user_message == "일상 영역":
-            return {
-                "version": "2.0",
-                "template": {
-                    "outputs": [{"simpleText": {"text": "☕ 학습하실 **일상 세부 주제**를 선택해 주세요."}}],
-                    "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in DAILY_TOPICS]
-                }
-            }
-
-        # [4단계] 세부 주제 확정 및 1단계 시작
+        # [3단계] 주제 선정 완료 -> 곧바로 1단계 시작
         if not session["topic"]:
-            if user_message in ALL_TOPICS:
+            if user_message in TOPICS_10:
                 session["topic"] = user_message
-                session["step"] = 1  # 주제 선정 완료 후 곧바로 1단계 시작
+                session["step"] = 1  # 주제 선정 직후 1단계 본격 진입
             else:
                 return {
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": "아래 버튼에서 학습 영역을 다시 선택해 주세요!"}}],
-                        "quickReplies": [
-                            {"label": "💼 비즈니스/업무", "action": "message", "messageText": "비즈니스 영역"},
-                            {"label": "☕ 일상/생활", "action": "message", "messageText": "일상 영역"}
-                        ]
+                        "outputs": [{"simpleText": {"text": "아래 버튼에서 학습하실 주제를 선택해 주세요!"}}],
+                        "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_10]
                     }
                 }
 
-        # [5단계] 순차적 커리큘럼 진행 (1단계 -> 2단계 -> 3단계 -> 4단계)
+        # [4단계] 순차적 커리큘럼 진행 (1단계 -> 2단계 -> 3단계 -> 4단계)
         if "다음 단계" in user_message:
             if session["step"] < 4:
                 session["step"] += 1
