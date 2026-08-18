@@ -89,24 +89,74 @@ async def kakao_skill(request: Request):
                     ],
                     model="llama-3.3-70b-versatile",
                 )
-                feedback_text = f"\n\n🤖 **[AI 피드백]**\n{chat_completion.choices[0].message.content}"
+                feedback_text = f"\n\n🤖 **[AI 튜터 실시간 교정 피드백]**\n{chat_completion.choices[0].message.content}"
             except Exception:
-                pass
+                feedback_text = "\n\n(AI 피드백 생성 중 일시적인 지연이 발생했습니다.)"
 
-        # 단계별 텍스트 출력
+        # 각 단계별 풍부한 학습 콘텐츠 매핑
+        step1_contents = {
+            ("영어", "고급", "비즈니스 미팅"): "• *\"Let's pivot our focus to the structural implications of this proposal.\"*\n(이 제안의 구조적 영향 쪽으로 논의의 초점을 전환해 봅시다.)\n\n💡 **Tip:** 'Pivot'을 사용하여 회의 주도권을 잡는 고급 표현입니다.",
+            ("영어", "고급", "여행 회화"): "• *\"I'd like to request an upgrade, and I'm willing to cover the rate difference.\"*\n(업그레이드를 요청하며 차액은 지불하겠습니다.)\n\n💡 **Tip:** 프론트 매니저를 공손하게 설득하는 프로페셔널 화법입니다."
+        }
+        default_step1 = "• *\"Let's streamline our approach regarding this core objective.\"*\n(본 핵심 목표와 관련하여 접근 방식을 효율화합시다.)\n\n💡 **Tip:** 실무에서 명확한 뉘앙스를 전달하는 표준 패턴입니다."
+
+        step2_contents = {
+            ("영어", "고급", "비즈니스 미팅"): "1. **Mitigate the potential risk** (잠재적 리스크 완화)\n2. **Stakeholder alignment** (이해관계자 간 의견 조율)\n3. **Bottleneck resolution** (병목 현상 해소)",
+            ("영어", "고급", "여행 회화"): "1. **Complimentary amenity** (무료 편의용품/서비스)\n2. **Incidental charges** (부대 비용)\n3. **Flexibility in policy** (정책적 유연성)"
+        }
+        default_step2 = "1. **Optimize operational efficiency** (운영 효율성 최적화)\n2. **Strategic execution** (전략적 실행)\n3. **Seamless integration** (원활한 통합)"
+
+        curr_s1 = step1_contents.get((lang, lvl, top), default_step1)
+        curr_s2 = step2_contents.get((lang, lvl, top), default_step2)
+
+        # 단계별 텍스트 및 버튼 구성
         if step == 1:
-            text = f"📚 [{lang} | {lvl} | {top}]\n━━━━━━━━━━━━\n🔥 **Step 1: 핵심 표현**\n\n- 실무에서 가장 자주 쓰이는 핵심 패턴입니다."
-            replies = [{"label": "➡️ 2단계로", "action": "message", "messageText": "다음 단계"}]
+            text = (
+                f"📚 [{lang} | {lvl} | {top}]\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔥 **Step 1: 핵심 오프닝 & 시그니처 패턴**\n\n"
+                f"{curr_s1}"
+            )
+            replies = [{"label": "➡️ 2단계(심화 어휘)로", "action": "message", "messageText": "다음 단계"}]
+            
         elif step == 2:
-            text = f"📚 [{lang} | {lvl} | {top}]\n━━━━━━━━━━━━\n🛡️ **Step 2: 심화 어휘**\n\n- 전문성을 높여주는 고급 어휘를 학습합니다."
-            replies = [{"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"}, {"label": "➡️ 3단계로", "action": "message", "messageText": "다음 단계"}]
+            text = (
+                f"📚 [{lang} | {lvl} | {top}]\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🛡️ **Step 2: 리스크 방어 & 설득 어휘**\n\n"
+                f"{curr_s2}\n\n"
+                f"💡 어휘를 조합하여 나만의 문장을 구상해 보세요!"
+            )
+            replies = [
+                {"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"}, 
+                {"label": "➡️ 3단계(실전 미션)로", "action": "message", "messageText": "다음 단계"}
+            ]
+            
         elif step == 3:
-            text = f"📚 [{lang} | {lvl} | {top}]\n━━━━━━━━━━━━\n🎙️ **Step 3: 실전 미션**\n\n문장을 입력해 피드백을 받아보세요!{feedback_text}"
-            replies = [{"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"}, {"label": "➡️ 4단계로", "action": "message", "messageText": "다음 단계"}]
+            text = (
+                f"📚 [{lang} | {lvl} | {top}]\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎙️ **Step 3: 실전 응용 미션**\n\n"
+                f"방금 학습한 표현들을 활용해 본인만의 실무 문장을 직접 입력해 주세요!\n\n"
+                f"✍️ 채팅창에 문장을 보내시면 즉시 피드백을 드립니다."
+                f"{feedback_text}"
+            )
+            replies = [
+                {"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"}, 
+                {"label": "➡️ 4단계(완료)로", "action": "message", "messageText": "다음 단계"}
+            ]
+            
         elif step == 4:
-            text = f"📚 [{lang} | {lvl} | {top}]\n━━━━━━━━━━━━\n🎉 **Step 4: 학습 완료!**\n오늘의 학습을 성공적으로 마쳤습니다."
+            text = (
+                f"📚 [{lang} | {lvl} | {top}]\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎉 **Step 4: 학습 완료 & 성취도 점검**\n\n"
+                f"오늘 준비한 모든 학습 단계를 완벽하게 클리어하셨습니다! 👏\n"
+                f"꾸준한 실전 연습이 유창성을 만듭니다."
+            )
             session.update({"step": 0, "lang": None, "level": None, "topic": None})
-            replies = [{"label": "🔄 처음으로", "action": "message", "messageText": "처음으로"}]
+            replies = [{"label": "🔄 처음부터 다시하기", "action": "message", "messageText": "처음으로"}]
+            
         else:
             text, replies = "학습을 시작합니다.", [{"label": "다음 단계", "action": "message", "messageText": "다음 단계"}]
 
