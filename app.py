@@ -5,184 +5,151 @@ import httpx
 
 app = FastAPI()
 
-# 제공해주신 Groq API 키 설정
+# Groq API 키 설정
 GROQ_API_KEY = "Gsk_GI1m4hspv6VtDgtxRyVTWGdyb3FYkx00NSwnIV7nxd0LvhRaNYtp"
 
-# 간단한 인메모리 세션 저장소 (데모용)
+# 사용자별 세션 저장소 (어종, 난이도, 현재 단계 관리)
 user_sessions = {}
 
-# --- [1] 카카오톡 챗봇 스킬 요청 처리 엔드포인트 (/api/kakao) ---
+# --- [1] 카카오톡 챗봇 스킬 엔드포인트 (/api/kakao) ---
 @app.post("/api/kakao")
 async def kakao_skill(request: Request):
     try:
         body = await request.json()
-        
-        # 사용자가 입력한 발화 또는 파라미터 추출
+        user_id = body.get("userRequest", {}).get("user", {}).get("id", "default_user")
         user_message = body.get("userRequest", {}).get("utterance", "").strip()
-        
-        # 파라미터나 블록 정보를 통해 언어/난이도 선택 완료 여부 확인 로직
-        # 여기서는 사용자의 입력에 따라 단계별로 안내를 분기합니다.
-        
-        response_text = f"선택하신 조건에 맞춰 1단계 학습을 시작합니다!\n\n[학습 내용]\n- Core Expression: Let's get down to business.\n- Signature Pattern: I'm calling to follow up on..."
 
-        response_body = {
+        # 세션이 없거나 '처음'을 원할 때 초기화
+        if user_id not in user_sessions or "처처음" in user_message or "처음으로" in user_message:
+            user_sessions[user_id] = {"language": None, "level": None, "step": 0}
+
+        session = user_sessions[user_id]
+
+        # 1단계: 언어(어종) 선택이 안 되어 있다면 언어 선택지로 유도
+        if not session["language"]:
+            if user_message in ["영어", "베트남어"]:
+                session["language"] = user_message
+                return {
+                    "version": "2.0",
+                    "template": {
+                        "outputs": [
+                            {
+                                "simpleText": {
+                                    "text": f"🎯 **{session['language']}**를 선택하셨네요!\n\n원하시는 **난이도**를 선택해 주세요."
+                                }
+                            }
+                        ]
+                    },
+                    "quickReplies": [
+                        {"label": "초급 (Beginner)", "action": "message", "messageText": "초급"},
+                        {"label": "중급 (Intermediate)", "action": "message", "messageText": "중급"},
+                        {"label": "고급 (Advanced)", "action": "message", "messageText": "고급"}
+                    ]
+                }
+            else:
+                return {
+                    "version": "2.0",
+                    "template": {
+                        "outputs": [
+                            {
+                                "simpleText": {
+                                    "text": "👋 환영합니다! 지루하지 않고 재밌는 맞춤형 어학 학습을 시작해볼까요?\n\n먼저 학습할 **언어(어종)**를 선택해 주세요!"
+                                }
+                            }
+                        ]
+                    },
+                    "quickReplies": [
+                        {"label": "영어 (English)", "action": "message", "messageText": "영어"},
+                        {"label": "베트남어 (Tiếng Việt)", "action": "message", "messageText": "베트남어"}
+                    ]
+                }
+
+        # 2단계: 난이도가 선택되지 않았다면 난이도 저장 후 1단계 학습 시작
+        if not session["level"]:
+            if user_message in ["초급", "중급", "고급"]:
+                session["level"] = user_message
+                session["step"] = 1 # 1단계 진입
+            else:
+                # 난이도 입력이 잘못되었을 경우 다시 유도
+                return {
+                    "version": "2.0",
+                    "template": {
+                        "outputs": [{"simpleText": {"text": "올바른 난이도(초급, 중급, 고급)를 버튼을 눌러 선택해 주세요!"}}],
+                        "quickReplies": [
+                            {"label": "초급", "action": "message", "messageText": "초급"},
+                            {"label": "중급", "action": "message", "messageText": "중급"},
+                            {"label": "고급", "action": "message", "messageText": "고급"}
+                        ]
+                    }
+                }
+
+        # 3단계: 스텝 바이 스텝 커리큘럼 진행 (1단계 ~ 4단계)
+        if "다음 단계" in user_message:
+            session["step"] += 1
+
+        step = session["step"]
+        lang = session["language"]
+        lvl = session["level"]
+
+        # 단계별 시각적 구성 및 콘텐츠
+        if step == 1:
+            text = f"📚 [{lang} / {lvl}] **Step 1: 핵심 오프닝 & 시그니처 패턴**\n\n원어민이 가장 자주 쓰는 알짜배기 표현을 익혀보세요!\n\n💬 *'Let's get down to business.'* (본론으로 들어갑시다.)"
+            quick_replies = [{"label": "다음 단계로 ➡️", "action": "message", "messageText": "다음 단계"}]
+        elif step == 2:
+            text = f"🛡️ [{lang} / {lvl}] **Step 2: 리스크 방어 & 설득 어휘**\n\n실전 비즈니스와 상황별 대처 능력을 키워주는 심화 표현입니다.\n\n💬 *'Mitigate the risk.'* (위험을 완화하다.)"
+            quick_replies = [{"label": "다음 단계로 ➡️", "action": "message", "messageText": "다음 단계"}]
+        elif step == 3:
+            text = f"🎙️ [{lang} / {lvl}] **Step 3: 음성/텍스트 미션**\n\n배운 표현을 활용해 나만의 문장을 만들어 챗봇에게 보내보세요! (Groq AI가 멋진 피드백을 드립니다.)"
+            quick_replies = [{"label": "다음 단계로 ➡️", "action": "message", "messageText": "다음 단계"}]
+        elif step == 4:
+            text = f"🎉 [{lang} / {lvl}] **Step 4: 마무리 퀴즈 & 랭킹 확인**\n\n오늘의 학습을 완벽하게 클리어하셨습니다! 정말 수고 많으셨어요 수강생님."
+            session["step"] = 0  # 완료 후 초기화 대비
+            session["language"] = None
+            session["level"] = None
+            quick_replies = [{"label": "처음부터 다시하기 🔄", "action": "message", "messageText": "처음으로"}]
+        else:
+            session["step"] = 1
+            text = f"🚀 학습을 다시 시작합니다!"
+            quick_replies = [{"label": "다음 단계", "action": "message", "messageText": "다음 단계"}]
+
+        return {
             "version": "2.0",
             "template": {
                 "outputs": [
                     {
                         "simpleText": {
-                            "text": response_text
+                            "text": text
                         }
                     }
                 ]
-            }
+            },
+            "quickReplies": quick_replies
         }
-        return JSONResponse(content=response_body)
+
     except Exception as e:
         return JSONResponse(content={
             "version": "2.0",
             "template": {
-                "outputs": [
-                    {
-                        "simpleText": {
-                            "text": "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-                        }
-                    }
-                ]
+                "outputs": [{"simpleText": {"text": "앗, 처리 중 작은 오류가 발생했어요. 잠시 후 다시 시도해 주세요!"}}]
             }
         })
 
 
-# --- [2] 웹 대시보드 인터페이스 엔드포인트 ---
+# --- [2] 웹 대시보드 인터페이스 (브라우저 접속용) ---
 @app.get("/", response_class=HTMLResponse)
-async def home(user_id: str = "default_user"):
-    if user_id not in user_sessions:
-        user_sessions[user_id] = {"step": 1, "score": 0}
-    
-    session = user_sessions[user_id]
-    step = session["step"]
-    score = session["score"]
-    
-    html_content = f"""
-    <!DOCTYPE html>
+async def home():
+    return """
     <html>
-    <head>
-        <title>맞춤형 언어 학습 대시보드</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }}
-            .container {{ max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
-            h2 {{ color: #0056b3; }}
-            .btn {{ display: inline-block; padding: 10px 15px; margin: 10px 5px 10px 0; background: #007bff; color: white; text-decoration: none; border-radius: 4px; border: none; cursor: pointer; }}
-            .btn:hover {{ background: #0056b3; }}
-            .info-box {{ background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 15px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h2>🗣️ 맞춤형 영어 학습 커리큘럼 (Step {step}/4)</h2>
-    """
-    
-    if step == 1:
-        html_content += """
-            <div class="info-box">
-                <h3>Step 1: 핵심 오프닝 & 시그니처 패턴</h3>
-                <p>원어민의 정확한 발음과 억양을 확인하며 핵심 표현을 익혀보세요.</p>
-                <p>🎧 <a href="https://example.com/audio-sample" target="_blank">원어민 발음 오디오 클립 듣기</a></p>
-                <ul>
-                    <li><b>Core Expression:</b> Let's get down to business.</li>
-                    <li><b>Signature Pattern:</b> I'm calling to follow up on...</li>
-                </ul>
-            </div>
-            <a href="/next?user_id=""" + user_id + """" class="btn">2단계로 넘어가기</a>
-        """
-    elif step == 2:
-        html_content += """
-            <div class="info-box">
-                <h3>Step 2: 리스크 방어 & 설득 어휘 심화</h3>
-                <p>실전 비즈니스 및 상황별 심화 표현을 학습합니다.</p>
-                <p>🎧 <a href="https://example.com/audio-step2" target="_blank">2단계 심화 오디오 클립 듣기</a></p>
-                <ul>
-                    <li><b>Advanced Vocab:</b> Mitigate the risk, Supply chain disruption</li>
-                    <li><b>Combo Phrase:</b> To ensure we're on the same page...</li>
-                </ul>
-            </div>
-            <a href="/prev?user_id=""" + user_id + """" class="btn">이전 단계로</a>
-            <a href="/next?user_id=""" + user_id + """" class="btn">3단계(음성 미션)로</a>
-        """
-    elif step == 3:
-        html_content += """
-            <div class="info-box">
-                <h3>Step 3: 음성 녹음 미션 & 전문가 피드백</h3>
-                <p>배운 내용을 바탕으로 실제 상황을 가정해 답변을 준비하세요.</p>
-                <textarea rows="3" style="width:100%;" placeholder="답변을 입력하세요..."></textarea>
-            </div>
-            <a href="/prev?user_id=""" + user_id + """" class="btn">이전 단계로</a>
-            <a href="/next?user_id=""" + user_id + """" class="btn">4단계(퀴즈)로</a>
-        """
-    elif step == 4:
-        html_content += f"""
-            <div class="info-box">
-                <h3>Step 4: 마무리 퀴즈 및 점수 확인</h3>
-                <form action="/submit_quiz" method="get">
-                    <input type="hidden" name="user_id" value="{user_id}">
-                    <p><b>Q1. '위험을 완화하다'를 뜻하는 올바른 표현은?</b></p>
-                    <input type="radio" name="q1" value="wrong"> Choose one<br>
-                    <input type="radio" name="q1" value="correct" required> Mitigate the risk<br><br>
-                    
-                    <p><b>Q2. 공급망 차단을 영어로 올바르게 표현한 것은?</b></p>
-                    <input type="radio" name="q2" value="correct" required> Supply chain disruption<br>
-                    <input type="radio" name="q2" value="wrong"> Market index<br><br>
-                    
-                    <button type="submit" class="btn">채점하기</button>
-                </form>
-                <hr>
-                <p><b>현재 점수:</b> {score}점 / 100점</p>
-            </div>
-            <a href="/reset?user_id=""" + user_id + """" class="btn" style="background: #dc3545;">처음부터 다시 하기</a>
-        """
-        
-    html_content += """
-        </div>
-    </body>
+        <head><title>맞춤형 어학 학습 대시보드</title></head>
+        <body style="font-family: Arial; padding: 40px; background: #f4f4f9;">
+            <h2>🚀 카카오톡 어학 학습 챗봇 서버가 정상 작동 중입니다!</h2>
+            <p>카카오톡 채널에서 대화를 통해 스텝 바이 스텝 학습을 진행해 보세요.</p>
+        </body>
     </html>
     """
-    return HTMLResponse(content=html_content)
 
-@app.get("/next")
-async def next_step(user_id: str = "default_user"):
-    if user_id in user_sessions:
-        if user_sessions[user_id]["step"] < 4:
-            user_sessions[user_id]["step"] += 1
-    return HTMLResponse(content=f"<script>window.location.href='/='/'?user_id={user_id}';</script>")
 
-@app.get("/prev")
-async def prev_step(user_id: str = "default_user"):
-    if user_id in user_sessions:
-        if user_sessions[user_id]["step"] > 1:
-            user_sessions[user_id]["step"] -= 1
-    return HTMLResponse(content=f"<script>window.location.href='/='/'?user_id={user_id}';</script>")
-
-@app.get("/submit_quiz")
-async def submit_quiz(user_id: str = "default_user", q1: str = "", q2: str = ""):
-    score = 0
-    if q1 == "correct":
-        score += 50
-    if q2 == "correct":
-        score += 50
-    if user_id in user_sessions:
-        user_sessions[user_id]["score"] = score
-        user_sessions[user_id]["step"] = 4
-    return HTMLResponse(content=f"<script>window.location.href='/='/'?user_id={user_id}';</script>")
-
-@app.get("/reset")
-async def reset_session(user_id: str = "default_user"):
-    if user_id in user_sessions:
-        user_sessions[user_id] = {"step": 1, "score": 0}
-    return HTMLResponse(content=f"<script>window.location.href='/='/'?user_id={user_id}';</script>")
-
-# 크론잡 오류 방지를 위해 응답 크기를 최소화한 헬스체크 엔드포인트
+# --- [3] 크론잡 유지용 헬스체크 엔드포인트 (응답 최소화) ---
 @app.get("/health")
 async def health_check():
     return "OK"
