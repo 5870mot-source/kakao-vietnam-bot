@@ -12,7 +12,7 @@ client = Groq(api_key=GROQ_API_KEY)
 # 사용자별 세션 저장소
 user_sessions = {}
 
-# 카카오톡 안정성(최대 10개 제한)을 고려한 핵심 실무 주제 8선
+# 핵심 실무 주제 8선
 TOPICS_8 = [
     "비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", 
     "전화 응대", "여행 회화", "카페 주문", "일상 대화"
@@ -120,7 +120,7 @@ async def kakao_skill(request: Request):
         lvl = session["level"]
         top = session["topic"]
 
-        # Step 3 AI 피드백 처리
+        # Step 3 AI 피드백 처리 (Groq 연동)
         feedback_text = ""
         if step == 3 and user_message not in ["다음 단계", "이전 단계", top] and not any(t in user_message for t in TOPICS_8):
             try:
@@ -142,6 +142,24 @@ async def kakao_skill(request: Request):
             except Exception:
                 feedback_text = "\n\n(AI 피드백 생성 중 일시적인 지연이 발생했습니다.)"
 
+        # Step 1 콘텐츠 매핑
+        content_map = {
+            ("영어", "고급", "여행 회화"): {
+                "expr": "• *I'd like to request an upgrade to a higher category room, and I'm willing to cover any incidental rate difference.*",
+                "tip": "단순 요구를 넘어, 서비스 재량권을 가진 담당자를 공손하게 설득하는 고급 화법입니다."
+            },
+            ("영어", "고급", "비즈니스 미팅"): {
+                "expr": "• *Let's pivot our focus to the structural implications of this proposal.*",
+                "tip": "'Pivot'을 사용하여 논의의 주도권을 잡는 지적인 표현입니다."
+            }
+        }
+        default_content = {
+            "expr": "• *Let's focus on the core objective and streamline our approach.* (핵심 목표에 집중하고 접근 방식을 효율화합시다.)",
+            "tip": "실무에서 명확하고 전문적인 뉘앙스를 전달할 수 있는 핵심 구문입니다."
+        }
+        curr = content_map.get((lang, lvl, top), default_content)
+
+        # 각 스텝별 텍스트 및 버튼 구성
         if step == 1:
             text = (
                 f"📚 [{lang} | {lvl} | {top}]\n"
@@ -149,9 +167,9 @@ async def kakao_skill(request: Request):
                 f"🔥 **Step 1: 핵심 오프닝 & 시그니처 패턴**\n\n"
                 f"해당 상황에서 원어민이 가장 자주 사용하는 알짜배기 핵심 표현입니다.\n\n"
                 f"💬 **Core Expression:**\n"
-                f"• 핵심 학습 표현이 제공됩니다.\n\n"
+                f"{curr['expr']}\n\n"
                 f"💡 **Learning Tip:**\n"
-                f"상황별 맞춤형 뉘앙스를 익혀보세요."
+                f"{curr['tip']}"
             )
             quick_replies = [{"label": "➡️ 2단계로 넘어가기", "action": "message", "messageText": "다음 단계"}]
             
@@ -160,11 +178,12 @@ async def kakao_skill(request: Request):
                 f"📚 [{lang} | {lvl} | {top}]\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🛡️ **Step 2: 리스크 방어 & 설득 어휘**\n\n"
-                f"표현력을 높여주는 전문 심화 어휘입니다.\n\n"
+                f"상황별 대처 능력과 표현력을 높여주는 전문 심화 어휘입니다.\n\n"
                 f"💬 **Advanced Vocab:**\n"
-                f"• 심화 어휘 및 키워드 제공\n\n"
+                f"• *Mitigate the potential risk* (잠재적 위험을 완화하다)\n"
+                f"• *Handle unexpected hurdles* (예기치 않은 장애물을 처리하다)\n\n"
                 f"💡 **Learning Tip:**\n"
-                f"실무 대처 능력을 높여줍니다."
+                f"돌발 상황이나 리스크를 설명하고 상대방을 논리적으로 설득할 때 핵심 키워드로 활용됩니다."
             )
             quick_replies = [
                 {"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"},
@@ -190,7 +209,7 @@ async def kakao_skill(request: Request):
                 f"📚 [{lang} | {lvl} | {top}]\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🎉 **Step 4: 학습 완료 & 성취도 점검**\n\n"
-                f"오늘 준비한 모든 학습 단계를 완벽하게 클리어하셨습니다! 수고 많으셨습니다. 👏"
+                f"오늘 준비한 모든 학습 단계를 완벽하게 클리어하셨습니다! 꾸준한 학습이 실력을 만듭니다. 수고 많으셨습니다. 👏"
             )
             session["step"] = 0
             session["lang"] = None
@@ -215,13 +234,21 @@ async def kakao_skill(request: Request):
         return JSONResponse(content={
             "version": "2.0",
             "template": {
-                "outputs": [{"simpleText": {"text": "앗, 처리 중 작은 오류가 발생했어요. 잠시 후 다시 시도해 주세요!"}}]
+                "outputs": [{"simpleText": {"text": "앗, 처리 중 작은 오류가 발생했어요. 잠시 후 '처음'을 입력해 재시도해 주세요!"}}]
             }
         })
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    return "<html><body><h2>챗봇 서버 정상 작동 중</h2></body></html>"
+    return """
+    <html>
+        <head><title>맞춤형 어학 학습 대시보드</title></head>
+        <body style="font-family: Arial; padding: 40px; background: #f4f4f9;">
+            <h2>🚀 카카오톡 어학 학습 챗봇 서버가 정상 작동 중입니다!</h2>
+            <p>카카오톡 채널에서 대화를 통해 스텝 바이 스텝 학습을 진행해 보세요.</p>
+        </body>
+    </html>
+    """
 
 @app.get("/health")
 async def health_check():
