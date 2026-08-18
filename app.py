@@ -5,8 +5,8 @@ import httpx
 
 app = FastAPI()
 
-# Groq API 키 설정 (환경 변수 또는 안전한 입력 권장)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+# 제공해주신 Groq API 키 설정
+GROQ_API_KEY = "Gsk_GI1m4hspv6VtDgtxRyVTWGdyb3FYkx00NSwnIV7nxd0LvhRaNYtp"
 
 # 간단한 인메모리 세션 저장소 (데모용)
 user_sessions = {}
@@ -140,7 +140,7 @@ async def reset_session(user_id: str = "default_user"):
         user_sessions[user_id] = {"step": 1, "score": 0}
     return HTMLResponse(content=f"<script>window.location.href='/='/'?user_id={user_id}';</script>")
 
-# 헬스체크 및 크론잡 유지용 엔드포인트
+# 크론잡 오류 방지를 위해 응답 크기를 최소화한 헬스체크 엔드포인트
 @app.get("/health")
 async def health_check():
-    return {"status": "active", "message": "Server is running smoothly."}
+    return "OK"
