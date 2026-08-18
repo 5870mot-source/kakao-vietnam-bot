@@ -1,6 +1,6 @@
 import os
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
 app = FastAPI()
@@ -11,6 +11,44 @@ GROQ_API_KEY = "Gsk_GI1m4hspv6VtDgtxRyVTWGdyb3FYkx00NSwnIV7nxd0LvhRaNYtp"
 # 간단한 인메모리 세션 저장소 (데모용)
 user_sessions = {}
 
+# --- [1] 카카오톡 챗봇 스킬 요청 처리 엔드포인트 ---
+@app.post("/kakao")
+async def kakao_skill(request: Request):
+    try:
+        body = await request.json()
+        # 카카오톡 사용자 발화나 블록 이름 추출 (필요시 활용)
+        user_message = body.get("userRequest", {}).get("utterance", "")
+        
+        # 카카오톡 오픈빌더 규격에 맞는 JSON 응답 반환
+        response_body = {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {
+                        "simpleText": {
+                            "text": f"요청이 성공적으로 접수되었습니다! (입력 내용: {user_message})\n\n1단계 학습을 시작합니다."
+                        }
+                    }
+                ]
+            }
+        }
+        return JSONResponse(content=response_body)
+    except Exception as e:
+        return JSONResponse(content={
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {
+                        "simpleText": {
+                            "text": "요청 처중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                        }
+                    }
+                ]
+            }
+        })
+
+
+# --- [2] 웹 대시보드 인터페이스 엔드포인트 ---
 @app.get("/", response_class=HTMLResponse)
 async def home(user_id: str = "default_user"):
     if user_id not in user_sessions:
@@ -20,7 +58,6 @@ async def home(user_id: str = "default_user"):
     step = session["step"]
     score = session["score"]
     
-    # HTML UI 구성 (1~4단계 및 오디오 링크, 퀴즈 포함)
     html_content = f"""
     <!DOCTYPE html>
     <html>
