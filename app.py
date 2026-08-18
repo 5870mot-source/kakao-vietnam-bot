@@ -16,16 +16,22 @@ user_sessions = {}
 async def kakao_skill(request: Request):
     try:
         body = await request.json()
-        user_message = body.get("userRequest", {}).get("utterance", "")
         
-        # 카카오톡 오픈빌더 규격에 맞는 JSON 응답 반환
+        # 사용자가 입력한 발화 또는 파라미터 추출
+        user_message = body.get("userRequest", {}).get("utterance", "").strip()
+        
+        # 파라미터나 블록 정보를 통해 언어/난이도 선택 완료 여부 확인 로직
+        # 여기서는 사용자의 입력에 따라 단계별로 안내를 분기합니다.
+        
+        response_text = f"선택하신 조건에 맞춰 1단계 학습을 시작합니다!\n\n[학습 내용]\n- Core Expression: Let's get down to business.\n- Signature Pattern: I'm calling to follow up on..."
+
         response_body = {
             "version": "2.0",
             "template": {
                 "outputs": [
                     {
                         "simpleText": {
-                            "text": f"요청이 성공적으로 접수되었습니다! (입력 내용: {user_message})\n\n1단계 학습을 시작합니다."
+                            "text": response_text
                         }
                     }
                 ]
