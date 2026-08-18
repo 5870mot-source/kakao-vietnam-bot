@@ -1,16 +1,20 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from groq import Groq  # Groq 라이브러리 임포트
 
 app = FastAPI()
 
-# Groq API 키 설정
-GROQ_API_KEY = "Gsk_GI1m4hspv6VtDgtxRyVTWGdyb3FYkx00NSwnIV7nxd0LvhRaNYtp"
+# 1. Groq 클라이언트 설정
+# (환경 변수에 GROQ_API_KEY가 등록되어 있다면 아래처럼 쓰거나, 
+#  api_key="gsk_..." 처럼 직접 문자열로 넣으셔도 됩니다.)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "여기에_본인의_Groq_API_키를_입력하세요")
+client = Groq(api_key=GROQ_API_KEY)
 
 # 사용자별 세션 저장소
 user_sessions = {}
 
-# 핵심 세부 주제 10선 (카카오 퀵버튼 최대 제한 준수)
+# 핵심 세부 주제 10선
 TOPICS_10 = [
     "비즈니스 미팅", "이메일 작성", "협상 전략", "발표 스킬", "전화 응대",
     "여행 회화", "카페 주문", "길 묻기", "병원 방문", "일상 대화"
@@ -23,8 +27,8 @@ async def kakao_skill(request: Request):
         user_id = body.get("userRequest", {}).get("user", {}).get("id", "default_user")
         user_message = body.get("userRequest", {}).get("utterance", "").strip()
 
-        # 세션 초기화 또는 처음으로 돌아갈 때
-        if user_id not in user_sessions or "처음" in user_message or "처음으로" in user_message:
+        # 세션 초기화 또는 처음으로 돌아갈 때 ('오늘의 학습 시작' 포함)
+        if user_id not in user_sessions or "처음" in user_message or "처음으로" in user_message or "오늘의 학습 시작" in user_message:
             user_sessions[user_id] = {"lang": None, "level": None, "topic": None, "step": 0}
         
         session = user_sessions[user_id]
@@ -36,7 +40,7 @@ async def kakao_skill(request: Request):
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": f"🎯 [{session['lang']}]를 선택하셨습니다!\n\n이어 원하시는 난이도를 선택해 주세요."}}]
+                        "outputs": [{"simpleText": {"text": f"🎯 **{session['lang']}**를 선택하셨습니다!\n\n이어 원하시는 **난이도**를 선택해 주세요."}}]
                     },
                     "quickReplies": [
                         {"label": "초급", "action": "message", "messageText": "초급"},
@@ -48,7 +52,7 @@ async def kakao_skill(request: Request):
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": "👋 환영합니다! 맞춤형 어학 학습을 시작해볼까요?\n\n먼저 학습할 언어(어종)를 선택해 주세요."}}]
+                        "outputs": [{"simpleText": {"text": "👋 환영합니다! 맞춤형 어학 학습을 시작해볼까요?\n\n먼저 학습할 **언어(어종)**를 선택해 주세요."}}]
                     },
                     "quickReplies": [
                         {"label": "영어", "action": "message", "messageText": "영어"},
@@ -63,7 +67,7 @@ async def kakao_skill(request: Request):
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
-                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습하실 주제를 아래 버튼에서 선택해 주세요."}}]
+                        "outputs": [{"simpleText": {"text": f"✨ [{session['lang']} / {session['level']}] 난이도가 설정되었습니다!\n\n학습하실 **주제**를 아래 버튼에서 선택해 주세요."}}]
                     },
                     "quickReplies": [{"label": t, "action": "message", "messageText": t} for t in TOPICS_10]
                 })
@@ -84,7 +88,7 @@ async def kakao_skill(request: Request):
         if not session["topic"]:
             if user_message in TOPICS_10:
                 session["topic"] = user_message
-                session["step"] = 1  # 주제 선정 직후 1단계 진입
+                session["step"] = 1
             else:
                 return JSONResponse(content={
                     "version": "2.0",
@@ -107,7 +111,29 @@ async def kakao_skill(request: Request):
         lvl = session["level"]
         top = session["topic"]
 
-        # 단계별 풍부하고 상세한 학습 내용 구성
+        # Step 3(실전 응용 미션)에서 사용자가 문장을 입력했을 때 Groq AI 호출 예시
+        feedback_text = ""
+        if step == 3 and user_message not in ["다음 단계", "이전 단계", top]:
+            try:
+                # Groq 모델을 이용한 실시간 피드백 생성
+                chat_completion = client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"당신은 {lang} 전문 원어민 튜터입니다. 사용자가 작성한 문장을 교정하고 자연스러운 비즈니스 표현으로 피드백을 한국어로 제공해주세요."
+                        },
+                        {
+                            "role": "user",
+                            "content": user_message
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                )
+                ai_feedback = chat_completion.choices[0].message.content
+                feedback_text = f"\n\n🤖 **[AI 튜터 실시간 교정 피드백]**\n{ai_feedback}\n"
+            except Exception as ai_err:
+                feedback_text = "\n\n(AI 피드백 생성 중 일시적인 지연이 발생했습니다.)"
+
         if step == 1:
             text = (
                 f"📚 [{lang} | {lvl} | {top}]\n"
@@ -145,6 +171,7 @@ async def kakao_skill(request: Request):
                 f"🎙️ **Step 3: 실전 응용 미션**\n\n"
                 f"방금 학습한 표현들을 활용하여 본인만의 실무 문장을 직접 작성해서 보내주세요!\n\n"
                 f"✍️ 채팅창에 문장을 입력하시면 즉시 분석 피드백을 제공합니다."
+                f"{feedback_text}"
             )
             quick_replies = [
                 {"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"},
