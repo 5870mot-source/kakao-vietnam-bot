@@ -1,13 +1,11 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from groq import Groq  # Groq 라이브러리 임포트
+from groq import Groq
 
 app = FastAPI()
 
-# 1. Groq 클라이언트 설정
-# (환경 변수에 GROQ_API_KEY가 등록되어 있다면 아래처럼 쓰거나, 
-#  api_key="gsk_..." 처럼 직접 문자열로 넣으셔도 됩니다.)
+# Groq 클라이언트 설정
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "여기에_본인의_Groq_API_키를_입력하세요")
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -27,16 +25,20 @@ async def kakao_skill(request: Request):
         user_id = body.get("userRequest", {}).get("user", {}).get("id", "default_user")
         user_message = body.get("userRequest", {}).get("utterance", "").strip()
 
-        # 세션 초기화 또는 처음으로 돌아갈 때 ('오늘의 학습 시작' 포함)
+        # 세션 초기화 또는 처음으로 돌아갈 때
         if user_id not in user_sessions or "처음" in user_message or "처음으로" in user_message or "오늘의 학습 시작" in user_message:
             user_sessions[user_id] = {"lang": None, "level": None, "topic": None, "step": 0}
         
         session = user_sessions[user_id]
 
-        # [1단계] 어종(언어) 선택
+        # [1단계] 어종(언어) 선택 (공백 포함 안전하게 캐치)
         if not session["lang"]:
-            if user_message in ["영어", "베트남어"]:
-                session["lang"] = user_message
+            if "영어" in user_message:
+                session["lang"] = "영어"
+            elif "베트남어" in user_message:
+                session["lang"] = "베트남어"
+
+            if session["lang"]:
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
@@ -60,10 +62,16 @@ async def kakao_skill(request: Request):
                     ]
                 })
 
-        # [2단계] 난이도 선택 직후 -> 세부 주제 10개 전체 노출
+        # [2단계] 난이도 선택 직후 -> 무조건 10개 주제 전체 노출
         if not session["level"]:
-            if user_message in ["초급", "중급", "고급"]:
-                session["level"] = user_message
+            if "초급" in user_message:
+                session["level"] = "초급"
+            elif "중급" in user_message:
+                session["level"] = "중급"
+            elif "고급" in user_message:
+                session["level"] = "고급"
+
+            if session["level"]:
                 return JSONResponse(content={
                     "version": "2.0",
                     "template": {
@@ -84,10 +92,12 @@ async def kakao_skill(request: Request):
                     }
                 })
 
-        # [3단계] 주제 선정 완료 -> 곧바로 1단계 시작
+        # [3단계] 주제 선정 완료 -> 1단계 진입
         if not session["topic"]:
-            if user_message in TOPICS_10:
-                session["topic"] = user_message
+            # 사용자가 누른 주제가 10개 중 포함되어 있는지 확인
+            matched_topic = next((t for t in TOPICS_10 if t in user_message), None)
+            if matched_topic:
+                session["topic"] = matched_topic
                 session["step"] = 1
             else:
                 return JSONResponse(content={
@@ -98,7 +108,7 @@ async def kakao_skill(request: Request):
                     }
                 })
 
-        # [4단계] 순차적 커리큘럼 진행 (1단계 -> 2단계 -> 3단계 -> 4단계)
+        # [4단계] 커리큘럼 스텝 이동
         if "다음 단계" in user_message:
             if session["step"] < 4:
                 session["step"] += 1
@@ -111,16 +121,15 @@ async def kakao_skill(request: Request):
         lvl = session["level"]
         top = session["topic"]
 
-        # Step 3(실전 응용 미션)에서 사용자가 문장을 입력했을 때 Groq AI 호출 예시
+        # Step 3 AI 피드백 처리
         feedback_text = ""
-        if step == 3 and user_message not in ["다음 단계", "이전 단계", top]:
+        if step == 3 and user_message not in ["다음 단계", "이전 단계", top] and not any(t in user_message for t in TOPICS_10):
             try:
-                # Groq 모델을 이용한 실시간 피드백 생성
                 chat_completion = client.chat.completions.create(
                     messages=[
                         {
                             "role": "system",
-                            "content": f"당신은 {lang} 전문 원어민 튜터입니다. 사용자가 작성한 문장을 교정하고 자연스러운 비즈니스 표현으로 피드백을 한국어로 제공해주세요."
+                            "content": f"당신은 {lang} 전문 원어민 튜터입니다. 사용자가 작성한 문장을 교정하고 자연스러운 표현으로 피드백을 한국어로 제공해주세요."
                         },
                         {
                             "role": "user",
@@ -131,7 +140,7 @@ async def kakao_skill(request: Request):
                 )
                 ai_feedback = chat_completion.choices[0].message.content
                 feedback_text = f"\n\n🤖 **[AI 튜터 실시간 교정 피드백]**\n{ai_feedback}\n"
-            except Exception as ai_err:
+            except Exception:
                 feedback_text = "\n\n(AI 피드백 생성 중 일시적인 지연이 발생했습니다.)"
 
         if step == 1:
@@ -141,9 +150,9 @@ async def kakao_skill(request: Request):
                 f"🔥 **Step 1: 핵심 오프닝 & 시그니처 패턴**\n\n"
                 f"해당 상황에서 원어민이 가장 자주 사용하는 알짜배기 핵심 표현입니다.\n\n"
                 f"💬 **Core Expression:**\n"
-                f"• *Let's get down to business.* (본론으로 들어갑시다.)\n\n"
+                f"• 핵심 학습 표현이 제공됩니다.\n\n"
                 f"💡 **Learning Tip:**\n"
-                f"가벼운 인사 후에 자연스럽게 분위기를 전환하여 본론 논의를 이끌어낼 때 매우 유용하게 쓰입니다."
+                f"상황별 맞춤형 뉘앙스를 익혀보세요."
             )
             quick_replies = [{"label": "➡️ 2단계로 넘어가기", "action": "message", "messageText": "다음 단계"}]
             
@@ -152,12 +161,11 @@ async def kakao_skill(request: Request):
                 f"📚 [{lang} | {lvl} | {top}]\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🛡️ **Step 2: 리스크 방어 & 설득 어휘**\n\n"
-                f"상황별 대처 능력과 표현력을 높여주는 전문 심화 어휘입니다.\n\n"
+                f"표현력을 높여주는 전문 심화 어휘입니다.\n\n"
                 f"💬 **Advanced Vocab:**\n"
-                f"• *Mitigate the risk* (위험을 완화하다)\n"
-                f"• *Supply chain disruption* (공급망 차단)\n\n"
+                f"• 심화 어휘 및 키워드 제공\n\n"
                 f"💡 **Learning Tip:**\n"
-                f"돌발 상황이나 리스크를 설명하고 상대방을 논리적으로 설득할 때 핵심 키워드로 활용됩니다."
+                f"실무 대처 능력을 높여줍니다."
             )
             quick_replies = [
                 {"label": "⬅️ 이전", "action": "message", "messageText": "이전 단계"},
@@ -183,7 +191,7 @@ async def kakao_skill(request: Request):
                 f"📚 [{lang} | {lvl} | {top}]\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🎉 **Step 4: 학습 완료 & 성취도 점검**\n\n"
-                f"오늘 준비한 모든 학습 단계를 완벽하게 클리어하셨습니다! 꾸준한 학습이 실력을 만듭니다. 수고 많으셨습니다. 👏"
+                f"오늘 준비한 모든 학습 단계를 완벽하게 클리어하셨습니다! 수고 많으셨습니다. 👏"
             )
             session["step"] = 0
             session["lang"] = None
@@ -214,15 +222,7 @@ async def kakao_skill(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    return """
-    <html>
-        <head><title>맞춤형 어학 학습 대시보드</title></head>
-        <body style="font-family: Arial; padding: 40px; background: #f4f4f9;">
-            <h2>🚀 카카오톡 어학 학습 챗봇 서버가 정상 작동 중입니다!</h2>
-            <p>카카오톡 채널에서 대화를 통해 스텝 바이 스텝 학습을 진행해 보세요.</p>
-        </body>
-    </html>
-    """
+    return "<html><body><h2>챗봇 서버 정상 작동 중</h2></body></html>"
 
 @app.get("/health")
 async def health_check():
